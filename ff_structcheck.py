@@ -160,9 +160,19 @@ def output_bits(cell):
 
 
 def ff_key(name):
-    """Cell identity that survives the sync partition + mating round trip:
-    strip the $flatten decoration, compare the original name."""
-    return re.sub(r"^\$flatten\\[^.]*\.", "", name)
+    """Cell identity that survives the sync partition + mating round trip.
+
+    Yosys decoration passes prepend "$techmap\\<inst-path>." or
+    "$flatten\\<inst-path>." segments; the marker word and how many layers
+    stack differ between versions (0.9's flatten runs through techmap and
+    emits $techmap\\sync., 0.33+ emit $flatten\\sync.).  Strip leading
+    decorations until a fixpoint on both sides; instance-path components
+    (u1, u2, ...) survive, so distinct FFs keep distinct keys."""
+    previous = None
+    while previous != name:
+        previous = name
+        name = re.sub(r"^\$[A-Za-z_][A-Za-z_0-9]*\\[^.]*\.", "", name)
+    return name
 
 
 def structural_sanity(design, name):
