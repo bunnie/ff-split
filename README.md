@@ -13,7 +13,8 @@ This code is reviewed and checked by hand:
 - `ff_split.py` - the partitioner (stdlib only, Python 3.8+).
 - `examples/` - test designs (3-FF up-counter, constant D input, 4-bit vector
   DFFs, direct flop-to-flop shift register, two clock domains), a Verilator
-  testbench, and `run_example.sh` which drives everything end to end.
+  testbench, `run_example.sh` which drives one design end to end, and
+  `run_examples.sh` which loops over a name list.
 - `flattened_fast_mul_opt_corrected.{v,json}` - picorv32 fast-multiplier
   example (JSON produced with `read_verilog ...; proc; write_json`).
 
@@ -80,14 +81,28 @@ python3 ff_structcheck.py flattened_fast_mul_opt_corrected.json mul/flattened_fa
 python3 ff_equiv.py flattened_fast_mul_opt_corrected.json mul/flattened_fast_mul_opt_corrected_split.json --gold-module picorv32_pcpi_fast_mul --mode cells
 ```
 
-`mul/run_mul.sh` runs steps 2+3.  `examples/run_example.sh` runs the small examples
-(3-FF up-counter, constant D input, 4-bit vector DFFs, direct flop-to-flop
-shift register) through split, yosys round-trip and all three proof modes,
-plus a negative control: two interface wires get crossed and the checker
-must reject the result.  When Verilator is installed it also compiles both
-the original and the mated split top against the same testbench and diffs
-the traces -- catching things yosys's lenient net merging hides (it silently
-accepts multiply-driven nets that simulators reject).
+`mul/run_mul.sh` splits the files and then does only quick checks. The SAT
+solver takes an unknown time to run, but definitely longer than I'm willing to wait.
+
+`examples/run_example.sh <name>` drives a small example. Staged examples include:
+  - 3-FF up-counter
+  - constant D input
+  - 4-bit vector DFFs
+  - direct flop-to-flop shift register
+  - two clock domain design
+
+The script will drive the example through partitioning. It will then run a yosys
+round-trip and all three proof modes, plus the negative controls that apply
+to it (crossed interface wires for `counter`, swapped clock domains for
+`twoclk`).
+
+`examples/run_examples.sh` loops over a name list at the top of
+the script -- comment out entries to run a subset.
+
+When Verilator is installed, `run_example.sh` also compiles both the original and the
+mated split top against the same testbench and diffs the traces -- catching things
+yosys's lenient net merging hides (it silently accepts multiply-driven nets
+that simulators reject).
 
 ### Equivalence Checking
 
@@ -115,9 +130,10 @@ fail whenever power-on FF states differ, which is why no mode does it.
 
 ## Verification status
 
-- `examples/run_example.sh`: all five designs PASS structcheck and all three formal
-  modes; tampered split and swapped clock domains are rejected; original vs
-  mated-split simulation traces identical (Verilator).
+- `examples/run_examples.sh` (all five designs via `run_example.sh`): all PASS
+  structcheck and all three formal modes; tampered split and swapped clock
+  domains are rejected; original vs mated-split simulation traces identical
+  (Verilator).
 - `mul/run_mul.sh`: structcheck PASS on the full multiplier (~9 s:
   8783 nets, 134 FFs anchored, 8547 combinational cells matched - a
   complete isomorphism witness); randomized-stimulus simulation of the
@@ -136,3 +152,8 @@ fail whenever power-on FF states differ, which is why no mode does it.
   memories are not handled.
 - The original net name of each D/Q pin becomes the interface name, so a
   name like `fastmul.U2630_A1` appears verbatim (escaped to an identifier).
+
+# AI Usage Statement
+
+Generated with the assistance of Strata (qwen3.8-flash-next-unsloth-ud-iq4_xs) + omp
+  - Only ff_split.py is guaranteed to be hand-checked.
