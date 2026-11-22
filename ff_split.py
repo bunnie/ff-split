@@ -371,6 +371,22 @@ def split_module(modname, module):
 
     flip_flops = []
     buffer_cells = {}
+    # Aggregate all the sync element nets, so we can re-name nets in the
+    # case of a degenerate q -> d "no logic wire".
+    #
+    # The problem is that yosys write_verilog emits the net
+    # as both `input` and a block-assigned `reg`.
+    #
+    # When such a situation is encountered, use the same mechanism that constants
+    # usee, e.g. an explicit $pos pass-through of the Q net. This means every FF
+    # bit uniformly receives its D through an i_* port and degenerate wires stay
+    # visible to downstream tools instead of being aliased away.
+    q_nets = set(
+        bit
+        for cell in ff_cells.values()
+        for bit in cell["connections"]["Q"]
+        if bit is not None and bit not in CONST_BITS
+    )
     for cell_name, cell in ff_cells.items():
         clk_port = FF_CLOCK_PORTS[cell["type"]]
         d_bits = cell["connections"]["D"]
@@ -384,10 +400,11 @@ def split_module(modname, module):
             d_net = d_bit
             if d_bit is None:
                 die("cell {} bit {} has an undef input".format(cell_name, index))
-            if d_bit in CONST_BITS:
-                # Keep the "input to the sync element" a real wire: drive the
-                # constant through a buffer cell that stays in the
-                # combinational partition.
+            if d_bit in CONST_BITS or d_bit in q_nets:
+                # Keep the "input to the sync element" a real wire driven by
+                # the combinational partition: drive the constant (or the
+                # upstream flop's Q net) through a buffer cell that stays in
+                # the combinational partition.
                 d_net = net_id_cursor
                 net_id_cursor += 1
                 buffer_cells["{}$ffsplit_buf${}${}".format(
@@ -398,7 +415,7 @@ def split_module(modname, module):
                     {"A": "input", "Y": "output"},
                     {"A_SIGNED": 0, "A_WIDTH": 1, "Y_WIDTH": 1},
                 )
-            d_base = base_names.get(d_net, "{}_d{}".format(sanitize(cell_name), index))
+            d_base = base_names.get(d_bit, "{}_d{}".format(sanitize(cell_name), index))
             q_base = base_names.get(q_bit, "{}_q{}".format(sanitize(cell_name), index))
             clk_label = clock_nets[clk_net][0]
             flip_flops.append(
@@ -474,6 +491,9 @@ def split_module(modname, module):
     }
     for net_id, (name, _) in clock_nets.items():
         sync["ports"][name] = port_entry("input", [net_id])
+    # Every flip-flop D now sits on its own interface net (constants and
+    # flop-to-flop Q nets were given fresh driver nets above), so declaring
+    # the i_* input port is always sound: sync never also drives that net.
     for flip_flop in flip_flops:
         sync["ports"][flip_flop.in_name] = port_entry("input", [flip_flop.d_net])
         sync["ports"][flip_flop.out_name] = port_entry("output", [flip_flop.q_net])
