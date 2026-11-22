@@ -15,6 +15,12 @@ if [ -z "$design" ] || [ ! -f "$(dirname "$0")/${design}.v" ]; then
   echo "usage: $0 <design>  (a <design>.v next to this script)" >&2
   exit 2
 fi
+case $design in
+  *_comb|*_sync|*_split)
+    echo "$0: '$design' is a derived artifact of ff_split, not a source design (drop the suffix: ${design%_*})" >&2
+    exit 2
+    ;;
+esac
 cd "$(dirname "$0")"
 
 yosys -q -p "read_verilog $design.v; proc; opt_clean; write_json $design.json"
