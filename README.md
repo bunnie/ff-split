@@ -3,7 +3,7 @@
 Partition a flattened yosys JSON netlist at its flip flops into a pure
 combinational half and a pure sequential half, mated by a small top.
 
-For quartz (https://www.averest.org/#about_quartz) workflows where the
+For quartz (https://github.com/mit-plv/quartz) workflows where the
 combinational block is characterized separately from the sync elements.
 
 ## Files
