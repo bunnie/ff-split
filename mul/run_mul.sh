@@ -23,7 +23,10 @@ python3 ../ff_structcheck.py flattened_fast_mul_opt_corrected.json \
 # under randomized stimulus (catches anything yosys's lenient net merging
 # could hide).
 if command -v verilator >/dev/null; then
-  yosys -q -p "read_json ../flattened_fast_mul_opt_corrected.json; write_verilog -noattr mul_gold.v"
+  # opt_merge/opt_clean: yosys 0.9's write_verilog emits duplicate assigns
+  # for aliased nets (e.g. pcpi_wr/pcpi_ready), which Verilator rejects as
+  # MULTIDRIVEN; newer versions coalesce them on their own.
+  yosys -q -p "read_json ../flattened_fast_mul_opt_corrected.json; opt_merge; opt_clean -purge; write_verilog -noattr mul_gold.v"
   verilator --binary --Mdir obj_gold -o tb_gold --top-module mul_tb -Wno-LATCH \
       -DGOLD_DUT mul_gold.v mul_tb.sv --timing >/dev/null
   verilator --binary --Mdir obj_split -o tb_split --top-module mul_tb -Wno-LATCH \
