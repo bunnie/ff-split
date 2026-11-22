@@ -83,7 +83,10 @@ def sync_cell_key(name):
     """
     name = re.sub(r"^equiv/", "", name)
     name = re.sub(r"_gold$|_gate$", "", name)
-    name = re.sub(r"^\$flatten\\[^.]*\.", "", name)
+    previous = None
+    while previous != name:
+        previous = name
+        name = re.sub(r"^\$[A-Za-z_][A-Za-z_0-9]*\\[^.]*\.", "", name)
     name = re.sub(r"^\$techmap\\", "", name)
     # strip the trailing auto-generated cell name: .$procdff$1175,
     # .$auto$proc_dlatch.cc:409:proc_dlatch$1173, ...
