@@ -722,8 +722,15 @@ def dump_module_design(filename, modules):
 
 
 def yosys_verify(json_path, verilog_path):
-    """Confirm yosys can read the file back and write a verilog netlist."""
-    script = "read_json {}; write_verilog -noattr {}".format(
+    """Confirm yosys can read the file back and write a verilog netlist.
+
+    opt_merge/opt_clean are required for yosys <= ~0.10: its write_verilog
+    emits one `assign` per redundant driver of a net (interface pass-
+    throughs), which strict simulators reject with MULTIDRIVEN.  Merging
+    identical cells first collapses them to a single driver; newer yosys
+    backends already coalesce and these passes become a no-op.
+    """
+    script = "read_json {}; opt_merge; opt_clean -purge; write_verilog -noattr {}".format(
         json_path, verilog_path
     )
     result = subprocess.run(
