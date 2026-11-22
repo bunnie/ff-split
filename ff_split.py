@@ -1,11 +1,13 @@
 #!/usr/bin/env python3
 """Split a yosys JSON netlist at its synchronous elements.
 
-This tool takes a flattened yosys ``write_json`` netlist (the format produced
-by ``read_verilog <file>.v; proc; write_json <file>.json`` -- flip flops
-appear as ``$dff`` cells and latches as ``$dlatch`` cells, which is the JSON
-encoding of the ``always @(posedge clk)`` blocks in the source netlist) and
-partitions the design into:
+This tool takes in a flattened yosys `write_json` netlist (as produced
+by `read_verilog <file>.v; proc; write_json <file>.json`).
+
+In this format, flip flops appear as `$dff` cells, and latches as `$dlatch`
+cells.
+
+The tool then partitions the design into:
 
   * a combinational module  : every original top-level port, all combinational
                               cells, and a synchronous interface.
@@ -13,8 +15,10 @@ partitions the design into:
   * a top-level module      : instantiates the two and wires them together,
                               exposing only the original ports.
 
-Interface naming convention (identical names in both partitions, mirrored
-directions, so mating the two files reproduces the original circuit):
+The top-level module is useful for checking equivalence between the
+partitioned and original designs.
+
+Interface naming convention:
 
   clkN              clock nets, enumerated in first-seen order (clk1, clk2...).
                     output of the combinational module, input of the sync
@@ -26,12 +30,13 @@ directions, so mating the two files reproduces the original circuit):
                     flip flop clocked by clkN).  Input of the combinational
                     module, output of the sync one.
 
-Each output JSON file is standalone-readable by yosys ``read_json``; the
-``*_split.json`` top-level file additionally embeds the combinational and
-sync modules so that ``read_json *_split.json`` alone pulls in everything.
+Each output JSON file is standalone-readable by yosys `read_json`; the
+`*_split.json` top-level file additionally embeds the combinational and
+sync modules so that `read_json *_split.json` alone pulls in everything.
 
-Only ``$dff`` and ``$dlatch`` sequential cells are accepted; anything fancier
-(resets, enables, set/reset cells) aborts loudly instead of being mishandled.
+Only `$dff` and `$dlatch` sequential cells are accepted; anything fancier
+(resets, enables, set/reset cells) aborts instead of being mishandled.
+
 If your source netlist has those, synthesize them away first (fold resets and
 enables into the D logic, e.g. with a stdcell mapping that emits bare DFFs).
 
@@ -336,6 +341,7 @@ class FlipFlop:
 def split_module(modname, module):
     """Partition one module; returns (comb, sync, top) module dicts."""
     cells = module["cells"]
+    # first check that json has been reduced
     for cell_name, cell in cells.items():
         if cell["type"] not in FF_CLOCK_PORTS and is_sequential(cell["type"]):
             die(
@@ -344,9 +350,10 @@ def split_module(modname, module):
                     cell_name, cell["type"]
                 )
             )
-    ff_cells = OrderedDict(
-        (n, c) for n, c in cells.items() if c["type"] in FF_CLOCK_PORTS
-    )
+    ff_cells = OrderedDict()
+    for n, c in cells.items():
+        if c["type"] in FF_CLOCK_PORTS:
+            ff_cells[n] = c
     if not ff_cells:
         die("module {} contains no $dff/$dlatch cells to split on".format(modname))
 
@@ -524,27 +531,47 @@ def split_module(modname, module):
             comb["ports"][name]["direction"], comb["ports"][name]["bits"]
         )
 
-    # A net may have exactly one driver.  Interface nets usually have one
-    # (one instance drives, the other reads), but three real patterns put
-    # two drivers on the same original net id:
-    #   * an FF output net aliased with an original output port: comb
-    #     drives it with a pass-through while sync drives the same net from
-    #     the flip flop's Q -- e.g. pcpi_wr;
-    #   * an FF input net that is also an original input port: comb drives
-    #     its i_* port while the top-level input port drives the net;
+    # After partitioning, outputs end up with more than one driver. This is perhaps
+    # best illustrated with a simple example.
+    #
+    # module one_ff(input clk, input d, output reg q);
+    #   always @(posedge clk) q <= d;
+    # endmodule
+    #
+    # This is partitioned as follows:
+    #
+    # module one_ff_comb(input clk, input d, output q,
+    #                    output i_clk1_d, input o_clk1_q);
+    #   assign q = o_clk1_q;      // original output port: must be driven inside comb...
+    #   assign i_clk1_d = d;      // ...and the FF-input pass-through output
+    # endmodule
+    #
+    # module one_ff_sync(input clk1, input i_clk1_d, output reg o_clk1_q);
+    #   always @(posedge clk1) o_clk1_q <= i_clk1_d;
+    # endmodule
+    #
+    # module naive_split(input clk, input d, output q);
+    #   one_ff_comb comb (.clk(clk), .d(d), .q(q), .i_clk1_d(), .o_clk1_q(q));
+    #   one_ff_sync sync (.clk1(clk), .i_clk1_d(d), .o_clk1_q(q));
+    # endmodule
+    #
+    # Above we can see .o_clk1_q(q) happens twice.
+    #
+    # This is resolved according to the following priority order:
+    #   sync's Q > top-level input port > comb   [1]
+    #
+    # In each case, the losing driver moves to a dummy "read-by-nobody" net.
+    #
+    #   * In the case of an FF output net aliased with an original output
+    #     port, the FF output wins (example: pcpi_wr dff output in `mul` example)
+    #     The comb port is retained as a dummy net to preserve symmetry
+    #   * an FF input net that is also an original input port: (e.g. d in
+    #     examples/const_d): the top port wins, comb-side i_* output is
+    #     moved to a dummy
     #   * an FF whose input is another FF's output (direct flop-to-flop
-    #     connection): sync drives the net from the source Q and comb
-    #     drives it from a pass-through of the matching o_* input.
-    # yosys silently merges such drivers (the values are equal, so
-    # equivalence proofs pass) but that also creates a combinational loop
-    # through comb's pass-through; strict simulators report MULTIDRIVEN and
-    # UNOPTFLAT.  Fix per net: the source of truth wins and keeps the
-    # original net -- sync's Q if sync drives it, else the top-level input
-    # port, else comb.  Every other *driving* interface port on that net is
-    # moved to a fresh top-level net (a dead end: driven, read by nobody,
-    # so the module port lists stay symmetric).  Readers stay on the
-    # original net and see the winning driver.  Original ports are never
-    # moved.
+    #     connection): sync drives the net from the source Q. comb's
+    #     mirrored pass-through driver is moved.
+    #
     def real(bits):
         return [b for b in bits if b is not None and b not in CONST_BITS]
 
@@ -571,6 +598,8 @@ def split_module(modname, module):
         interface_nets.update(bits)
     for bits in interface["sync"].values():
         interface_nets.update(bits)
+
+    # Resolve the ordering of top input vs comb as per equation [1] in comment above
     for net in sorted(interface_nets):
         net_drivers = [
             (inst, port) for (inst, port) in drivers
@@ -595,8 +624,8 @@ def split_module(modname, module):
                 if bit == net:
                     connection[index] = fresh
 
-    # Original output ports need the same treatment: when a top output
-    # port bit sits on a sync Q net (the port value *is* a flip flop
+    # Resolve sync-Q vs top-level port as per [1]
+    # When a top output port bit sits on a sync Q net (the port value *is* a flip flop
     # output, e.g. pcpi_wr), the top port keeps that net -- sync drives it
     # directly, which is exactly the right value -- and only the comb
     # instance's copy of the port, which its internal pass-through drives,
