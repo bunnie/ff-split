@@ -74,11 +74,11 @@ yosys -p "read_verilog flattened_fast_mul_opt_corrected.v; proc; write_json flat
 python3 ff_split.py flattened_fast_mul_opt_corrected.json --module picorv32_pcpi_fast_mul --list-clocks
 
 # 2. split (round-trips each output through yosys by default)
-python3 ff_split.py flattened_fast_mul_opt_corrected.json --module picorv32_pcpi_fast_mul -o mul
+python3 ff_split.py flattened_fast_mul_opt_corrected.json --module picorv32_pcpi_fast_mul
 
 # 3. quick structural check (seconds), then the formal proof
-python3 ff_structcheck.py flattened_fast_mul_opt_corrected.json mul/flattened_fast_mul_opt_corrected_split.json --gold-module picorv32_pcpi_fast_mul
-python3 ff_equiv.py flattened_fast_mul_opt_corrected.json mul/flattened_fast_mul_opt_corrected_split.json --gold-module picorv32_pcpi_fast_mul --mode cells
+python3 ff_structcheck.py flattened_fast_mul_opt_corrected.json flattened_fast_mul_opt_corrected_split.json --gold-module picorv32_pcpi_fast_mul
+python3 ff_equiv.py flattened_fast_mul_opt_corrected.json flattened_fast_mul_opt_corrected_split.json --gold-module picorv32_pcpi_fast_mul --mode cells
 ```
 
 `mul/run_mul.sh` splits the files and then does only quick checks. The SAT
