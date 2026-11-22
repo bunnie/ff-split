@@ -45,6 +45,6 @@ fi
 #
 # python3 ../ff_equiv.py flattened_fast_mul_opt_corrected.json \
 #     flattened_fast_mul_opt_corrected_split.json \
-#     --gold-module picorv32_pcpi_fast_mul --mode cells
+#     --gold-module picorv32_pcpi_fast_mul --mode induct
 
 echo "multiplier OK"
