@@ -1,0 +1,16 @@
+__pycache__/
+
+# Derived netlists and their Verilog: every *.json is yosys write_json
+# output from the matching source .v, and *_comb/_sync/_split.{json,v}
+# come from ff_split.py.  Regenerate with examples/run_example.sh (or
+# mul/run_mul.sh); commit them instead if you want clones that work
+# without yosys installed.
+*.json
+*_comb.v
+*_sync.v
+*_split.v
+
+# build/test droppings
+obj_dir/
+*.bad.v
+*.log
